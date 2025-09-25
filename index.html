@@ -159,7 +159,7 @@
 
   const loadSessions = () => JSON.parse(localStorage.getItem(LS_KEY_SESS) || '[]');
   const saveSessions = arr => localStorage.setItem(LS_KEY_SESS, JSON.stringify(arr));
-  const loadSettings = () => JSON.parse(localStorage.getItem(LS_KEY_SETTINGS) || '{"weeklyTarget":36,"startOfWeek":1}');
+  const loadSettings = () => JSON.parse(localStorage.getItem(LS_KEY_SETTINGS) || '{"weeklyTarget":24,"startOfWeek":1}');
   const saveSettings = s => localStorage.setItem(LS_KEY_SETTINGS, JSON.stringify(s));
 
   let sessions = loadSessions();
