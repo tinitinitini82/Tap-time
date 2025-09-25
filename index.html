@@ -413,11 +413,12 @@
   document.getElementById('addManual').onclick = addManualEntry;
   document.getElementById('clearToday').onclick = clearToday;
   document.getElementById('saveSettings').onclick = () => {
-    settings.weeklyTarget = Number(document.getElementById('weeklyTarget').value || 0);
-    settings.startOfWeek = Number(document.getElementById('startOfWeek').value || 1);
-    saveSettings(settings);
-    render();
-  };
+  const val = parseFloat(document.getElementById('weeklyTarget').value);
+  settings.weeklyTarget = isNaN(val) ? 0 : val;  // store exact hours (e.g., 24)
+  settings.startOfWeek = Number(document.getElementById('startOfWeek').value || 1);
+  saveSettings(settings);
+  render();
+};
 
   document.addEventListener('click', (e) => {
     const a = e.target.closest('[data-act]'); if (!a) return;
