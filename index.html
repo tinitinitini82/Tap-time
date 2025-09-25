@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TapTime — Work Check‑in/Out</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#ffffff"/>
+  <style>
+    :root { --maxw: 960px; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f6f7fb; color: #111; }
+    header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #eee; padding: 12px 16px; }
+    header .row { max-width: var(--maxw); margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+    h1 { font-size: 20px; margin: 0; font-weight: 700; }
+    main { max-width: var(--maxw); margin: 20px auto; padding: 0 16px 40px; }
+    .card { background: #fff; border: 1px solid #eee; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .status { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .status .big { font-size: 28px; font-weight: 700; }
+    .muted { color: #666; }
+    button.primary { padding: 12px 18px; border-radius: 10px; border: none; font-weight: 700; cursor: pointer; }
+    button.primary.in { background: #0b7; color: #fff; }
+    button.primary.out { background: #e33; color: #fff; }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; }
+    .col-4 { grid-column: span 4; } .col-8 { grid-column: span 8; } .col-12 { grid-column: span 12; }
+    @media (max-width: 720px) { .col-4, .col-8 { grid-column: span 12; } }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+    .right { text-align: right; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    input, select { padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; width: 100%; }
+    .chip { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #f0f3f5; font-size: 12px; margin-right: 6px; }
+    .danger { color: #e33; }
+    .good { color: #0a7; }
+    .soft { background:#fafafa;border:1px dashed #ddd;border-radius:10px;padding:10px }
+    .link { color:#06f; cursor:pointer; text-decoration: underline; }
+    footer { text-align:center; color:#777; padding: 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <h1>TapTime</h1>
+      <div style="margin-left:auto" id="installPrompt" class="muted"></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <div class="status">
+        <div>
+          <div class="big" id="clock">--:--</div>
+          <div class="muted" id="todayStr"></div>
+        </div>
+        <div>
+          <button id="toggleBtn" class="primary in">Check In</button>
+        </div>
+      </div>
+      <div style="margin-top:12px" class="muted" id="statusLine"></div>
+      <div style="margin-top:8px" class="toolbar">
+        <button id="addManual" class="primary">Add Manual Entry</button>
+        <button id="exportCsv" class="primary">Export CSV</button>
+        <button id="clearToday" class="primary">Clear Today</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="col-4">
+        <div class="card">
+          <h3>Today</h3>
+          <div id="todayTotal" class="big">0:00</div>
+          <div class="muted">Worked so far</div>
+          <div style="margin-top:8px">
+            <span class="chip" id="activeChip" style="display:none">Active session</span>
+            <span class="chip">Target: <span id="dailyTargetChip">—</span></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>This Week</h3>
+          <div id="weekTotal" class="big">0:00</div>
+          <div class="muted">Mon–Sun</div>
+          <div style="margin-top:8px" id="weekStatus" class="soft"></div>
+        </div>
+
+        <div class="card">
+          <h3>Settings</h3>
+          <label>Weekly target hours</label>
+          <input type="number" id="weeklyTarget" min="0" step="0.25" placeholder="e.g. 36" />
+          <label style="margin-top:8px">Start of week</label>
+          <select id="startOfWeek">
+            <option value="1">Monday</option>
+            <option value="0">Sunday</option>
+          </select>
+          <button id="saveSettings" class="primary" style="margin-top:10px">Save</button>
+        </div>
+      </div>
+
+      <div class="col-8">
+        <div class="card">
+          <h3>Today's Sessions</h3>
+          <table id="todayTable">
+            <thead>
+              <tr><th>Start</th><th>End</th><th class="right">Duration</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>All Entries</h3>
+          <div class="muted">Browse, edit, or delete any session.</div>
+          <table id="allTable">
+            <thead>
+              <tr><th>Date</th><th>Start</th><th>End</th><th class="right">Duration</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <footer>All data is stored locally on your device.</footer>
+  </main>
+
+  <template id="editDialogTmpl">
+    <div class="card" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:10;max-width:520px;width:92vw;background:#fff">
+      <h3>Edit Session</h3>
+      <div class="grid">
+        <div class="col-6">
+          <label>Start</label>
+          <input id="edStart" type="datetime-local">
+        </div>
+        <div class="col-6">
+          <label>End</label>
+          <input id="edEnd" type="datetime-local">
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:12px">
+        <button id="edSave" class="primary">Save</button>
+        <button id="edDelete" class="primary danger">Delete</button>
+        <span id="edCancel" class="link" style="margin-left:auto">Cancel</span>
+      </div>
+    </div>
+  </template>
+
+  <script>
+  // --- Utilities ---
+  const $ = (sel, el=document) => el.querySelector(sel);
+  const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+  const pad = n => String(n).padStart(2,'0');
+  const fmtTime = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const fmtDate = d => d.toISOString().slice(0,10);
+  const minutesBetween = (a,b) => Math.max(0, Math.round((b-a)/60000));
+  const minutesToHHMM = m => `${Math.floor(m/60)}:${pad(m%60)}`;
+
+  // --- Storage ---
+  const LS_KEY_SESS = 'tt.sessions.v1';
+  const LS_KEY_SETTINGS = 'tt.settings.v1';
+
+  const loadSessions = () => JSON.parse(localStorage.getItem(LS_KEY_SESS) || '[]');
+  const saveSessions = arr => localStorage.setItem(LS_KEY_SESS, JSON.stringify(arr));
+  const loadSettings = () => JSON.parse(localStorage.getItem(LS_KEY_SETTINGS) || '{"weeklyTarget":36,"startOfWeek":1}');
+  const saveSettings = s => localStorage.setItem(LS_KEY_SETTINGS, JSON.stringify(s));
+
+  let sessions = loadSessions();
+  let settings = loadSettings();
+
+  // --- PWA install prompt (minimal hint) ---
+  let deferredPrompt;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const el = document.getElementById('installPrompt');
+    el.innerHTML = '<button id="installBtn" class="primary">Install</button>';
+    document.getElementById('installBtn').onclick = async () => {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      el.textContent = 'Installed';
+    };
+  });
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js');
+    });
+  }
+
+  // --- App state ---
+  const getActive = () => sessions.find(s => !s.end);
+  const startSession = () => {
+    if (getActive()) return;
+    const now = new Date();
+    sessions.push({ id: crypto.randomUUID(), date: fmtDate(now), start: now.toISOString(), end: null });
+    saveSessions(sessions);
+    render();
+  };
+  const endSession = () => {
+    const s = getActive();
+    if (!s) return;
+    s.end = new Date().toISOString();
+    saveSessions(sessions);
+    render();
+  };
+
+  // Manual add
+  function addManualEntry() {
+    const start = prompt('Start time (YYYY-MM-DD HH:MM)');
+    if (!start) return;
+    const end = prompt('End time (YYYY-MM-DD HH:MM)');
+    if (!end) return;
+    const s = new Date(start.replace(' ', 'T'));
+    const e = new Date(end.replace(' ', 'T'));
+    if (isNaN(s) || isNaN(e) || e <= s) { alert('Invalid times'); return; }
+    sessions.push({ id: crypto.randomUUID(), date: fmtDate(s), start: s.toISOString(), end: e.toISOString() });
+    saveSessions(sessions);
+    render();
+  }
+
+  // Delete session
+  function deleteSession(id) {
+    sessions = sessions.filter(x => x.id !== id);
+    saveSessions(sessions);
+    render();
+  }
+
+  // Edit session dialog
+  function openEdit(id) {
+    const s = sessions.find(x => x.id === id);
+    if (!s) return;
+    const tmpl = document.getElementById('editDialogTmpl');
+    const node = tmpl.content.cloneNode(true);
+    const wrap = document.createElement('div');
+    wrap.style = 'position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:9';
+    wrap.appendChild(node);
+    document.body.appendChild(wrap);
+
+    const edStart = document.getElementById('edStart');
+    const edEnd = document.getElementById('edEnd');
+    const toLocal = iso => {
+      const d = new Date(iso);
+      const tzOff = d.getTimezoneOffset();
+      const local = new Date(d.getTime() - tzOff*60000);
+      return local.toISOString().slice(0,16);
+    };
+    edStart.value = toLocal(s.start);
+    edEnd.value = s.end ? toLocal(s.end) : '';
+
+    document.getElementById('edSave').onclick = () => {
+      const sVal = edStart.value; const eVal = edEnd.value;
+      const fromLocal = v => {
+        // Treat input as local and convert to ISO
+        const d = new Date(v);
+        const tzOff = d.getTimezoneOffset();
+        return new Date(d.getTime() + tzOff*60000).toISOString();
+      };
+      const ns = new Date(sVal);
+      const ne = eVal ? new Date(eVal) : null;
+      if (isNaN(ns) || (eVal && isNaN(ne)) || (ne && ne <= ns)) { alert('Invalid times'); return; }
+      s.start = fromLocal(sVal);
+      s.date = fmtDate(new Date(s.start));
+      s.end = eVal ? fromLocal(eVal) : null;
+      saveSessions(sessions);
+      wrap.remove(); render();
+    };
+    document.getElementById('edDelete').onclick = () => { if(confirm('Delete this session?')) { deleteSession(id); wrap.remove(); } };
+    document.getElementById('edCancel').onclick = () => wrap.remove();
+  }
+
+  // Clear today
+  function clearToday() {
+    const todayISO = fmtDate(new Date());
+    if (!confirm('Delete all sessions from today?')) return;
+    sessions = sessions.filter(s => s.date !== todayISO || s.end === null);
+    saveSessions(sessions);
+    render();
+  }
+
+  // Calculations
+  function totalMinutesForDate(dateStr) {
+    let m = 0;
+    for (const s of sessions) {
+      if (s.date !== dateStr) continue;
+      const start = new Date(s.start);
+      const end = s.end ? new Date(s.end) : new Date();
+      m += minutesBetween(start, end);
+    }
+    return m;
+  }
+
+  function weekBounds(d, startOfWeek) {
+    const day = d.getDay(); // 0=Sun
+    const diffToStart = (7 + (day - startOfWeek)) % 7;
+    const start = new Date(d); start.setDate(d.getDate() - diffToStart); start.setHours(0,0,0,0);
+    const end = new Date(start); end.setDate(start.getDate() + 7); end.setHours(0,0,0,0);
+    return { start, end };
+  }
+
+  function totalMinutesForWeek(d) {
+    const {start, end} = weekBounds(d, Number(settings.startOfWeek ?? 1));
+    let m = 0;
+    for (const s of sessions) {
+      const st = new Date(s.start);
+      if (st >= start && st < end) {
+        const e = s.end ? new Date(s.end) : new Date();
+        m += minutesBetween(st, e);
+      }
+    }
+    return m;
+  }
+
+  // Rendering
+  function render() {
+    // Clock & date
+    const now = new Date();
+    document.getElementById('clock').textContent = fmtTime(now);
+    const todayISO = fmtDate(now);
+    document.getElementById('todayStr').textContent = now.toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'short', day:'numeric' });
+
+    // Button
+    const active = getActive();
+    const btn = document.getElementById('toggleBtn');
+    btn.textContent = active ? 'Check Out' : 'Check In';
+    btn.classList.toggle('in', !active);
+    btn.classList.toggle('out', !!active);
+    document.getElementById('activeChip').style.display = active ? 'inline-block' : 'none';
+
+    // Status line
+    document.getElementById('statusLine').textContent = active
+      ? `Checked in since ${new Date(active.start).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`
+      : 'Not currently checked in.';
+
+    // Today totals
+    const todayMin = totalMinutesForDate(todayISO);
+    document.getElementById('todayTotal').textContent = minutesToHHMM(todayMin);
+
+    // Week totals
+    const weekMin = totalMinutesForWeek(now);
+    document.getElementById('weekTotal').textContent = minutesToHHMM(weekMin);
+
+    // Targets
+    const weeklyTarget = Number(settings.weeklyTarget ?? 36);
+    const dailyTarget = weeklyTarget / 5; // simple default
+    document.getElementById('dailyTargetChip').textContent = isFinite(dailyTarget) ? dailyTarget.toFixed(2) + ' h' : '—';
+
+    const remaining = Math.max(0, Math.round(weeklyTarget*60 - weekMin));
+    const over = Math.max(0, Math.round(weekMin - weeklyTarget*60));
+    const ws = document.getElementById('weekStatus');
+    ws.textContent = over ? `Over target by ${minutesToHHMM(over)}` : `Remaining this week: ${minutesToHHMM(remaining)}`;
+    ws.className = 'soft ' + (over ? 'danger' : 'good');
+
+    // Settings UI
+    document.getElementById('weeklyTarget').value = settings.weeklyTarget ?? 36;
+    document.getElementById('startOfWeek').value = settings.startOfWeek ?? 1;
+
+    // Tables
+    const todayBody = document.querySelector('#todayTable tbody');
+    todayBody.innerHTML = '';
+    for (const s of sessions.filter(x => x.date === todayISO)) {
+      const tr = document.createElement('tr');
+      const start = new Date(s.start);
+      const end = s.end ? new Date(s.end) : null;
+      const dur = minutesBetween(start, end ?? now);
+      tr.innerHTML = `<td>${fmtTime(start)}</td>
+                      <td>${end ? fmtTime(end) : '—'}</td>
+                      <td class="right">${minutesToHHMM(dur)}</td>
+                      <td class="right"><span class="link" data-act="edit" data-id="${s.id}">Edit</span></td>`;
+      todayBody.appendChild(tr);
+    }
+
+    const allBody = document.querySelector('#allTable tbody');
+    allBody.innerHTML = '';
+    const byDate = sessions.slice().sort((a,b)=>new Date(b.start)-new Date(a.start));
+    for (const s of byDate) {
+      const st = new Date(s.start);
+      const en = s.end ? new Date(s.end) : null;
+      const dur = minutesBetween(st, en ?? now);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${st.toLocaleDateString()}</td>
+                      <td>${fmtTime(st)}</td>
+                      <td>${en ? fmtTime(en) : '—'}</td>
+                      <td class="right">${minutesToHHMM(dur)}</td>
+                      <td class="right">
+                        <span class="link" data-act="edit" data-id="${s.id}">Edit</span>
+                        &nbsp;|&nbsp;
+                        <span class="link danger" data-act="del" data-id="${s.id}">Delete</span>
+                      </td>`;
+      allBody.appendChild(tr);
+    }
+  }
+
+  // Export CSV
+  function exportCSV() {
+    const rows = [['Date','Start','End','Duration(min)']];
+    for (const s of sessions) {
+      const st = new Date(s.start);
+      const en = s.end ? new Date(s.end) : null;
+      const mins = minutesBetween(st, en ?? new Date());
+      rows.push([fmtDate(st), st.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}), en ? en.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '', mins]);
+    }
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'taptime-export.csv';
+    a.click();
+  }
+
+  // Event wiring
+  document.getElementById('toggleBtn').onclick = () => getActive() ? endSession() : startSession();
+  document.getElementById('exportCsv').onclick = exportCSV;
+  document.getElementById('addManual').onclick = addManualEntry;
+  document.getElementById('clearToday').onclick = clearToday;
+  document.getElementById('saveSettings').onclick = () => {
+    settings.weeklyTarget = Number(document.getElementById('weeklyTarget').value || 0);
+    settings.startOfWeek = Number(document.getElementById('startOfWeek').value || 1);
+    saveSettings(settings);
+    render();
+  };
+
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-act]'); if (!a) return;
+    const id = a.getAttribute('data-id');
+    const act = a.getAttribute('data-act');
+    if (act === 'edit') openEdit(id);
+    if (act === 'del') { if (confirm('Delete this session?')) deleteSession(id); }
+  });
+
+  // Live clock tick
+  setInterval(render, 1000);
+  render();
+  </script>
+</body>
+</html>
